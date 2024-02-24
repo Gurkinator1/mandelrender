@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 #![allow(unsafe_code)]
 
-use eframe::{egui, egui_glow, glow};
+use eframe::{
+    egui::{self, Vec2},
+    egui_glow,
+    glow::{self, ARRAY_BUFFER, FLOAT, STATIC_DRAW},
+};
 
 use egui::mutex::Mutex;
-use std::sync::Arc;
+use std::{mem::size_of, sync::Arc};
 
 fn main() -> Result<(), eframe::Error> {
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -24,7 +28,7 @@ fn main() -> Result<(), eframe::Error> {
 struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     rotating_triangle: Arc<Mutex<RotatingTriangle>>,
-    angle: f32,
+    delta: Vec2,
 }
 
 impl MyApp {
@@ -35,7 +39,7 @@ impl MyApp {
             .expect("You need to run eframe with the glow backend");
         Self {
             rotating_triangle: Arc::new(Mutex::new(RotatingTriangle::new(gl))),
-            angle: 0.0,
+            delta: Vec2::ZERO,
         }
     }
 }
@@ -69,16 +73,15 @@ impl MyApp {
         let (rect, response) =
             ui.allocate_exact_size(egui::Vec2::splat(300.0), egui::Sense::drag());
 
-        self.angle += response.drag_delta().x * 0.01;
-
+        self.delta += response.drag_delta() * 0.01;
         // Clone locals so we can move them into the paint callback:
-        let angle = self.angle;
+        let delta = self.delta;
         let rotating_triangle = self.rotating_triangle.clone();
 
         let callback = egui::PaintCallback {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |_info, painter| {
-                rotating_triangle.lock().paint(painter.gl(), angle);
+                rotating_triangle.lock().paint(painter.gl(), delta);
             })),
         };
         ui.painter().add(callback);
@@ -103,39 +106,12 @@ impl RotatingTriangle {
         unsafe {
             let program = gl.create_program().expect("Cannot create program");
 
-            let (vertex_shader_source, fragment_shader_source) = (
-                r#"
-                    const vec2 verts[3] = vec2[3](
-                        vec2(0.0, 1.0),
-                        vec2(-1.0, -1.0),
-                        vec2(1.0, -1.0)
-                    );
-                    const vec4 colors[3] = vec4[3](
-                        vec4(1.0, 0.0, 0.0, 1.0),
-                        vec4(0.0, 1.0, 0.0, 1.0),
-                        vec4(0.0, 0.0, 1.0, 1.0)
-                    );
-                    out vec4 v_color;
-                    uniform float u_angle;
-                    void main() {
-                        v_color = colors[gl_VertexID];
-                        gl_Position = vec4(verts[gl_VertexID], 0.0, 1.0);
-                        gl_Position.x *= cos(u_angle);
-                    }
-                "#,
-                r#"
-                    precision mediump float;
-                    in vec4 v_color;
-                    out vec4 out_color;
-                    void main() {
-                        out_color = v_color;
-                    }
-                "#,
-            );
-
             let shader_sources = [
-                (glow::VERTEX_SHADER, vertex_shader_source),
-                (glow::FRAGMENT_SHADER, fragment_shader_source),
+                (glow::VERTEX_SHADER, include_str!("./vertex_shader.vert")),
+                (
+                    glow::FRAGMENT_SHADER,
+                    include_str!("./fragment_shader.frag"),
+                ),
             ];
 
             let shaders: Vec<_> = shader_sources
@@ -168,13 +144,34 @@ impl RotatingTriangle {
                 gl.delete_shader(shader);
             }
 
-            let vertex_array = gl
+            //create vertex buffer
+            let vao = gl
                 .create_vertex_array()
-                .expect("Cannot create vertex array");
+                .expect("cannot create vertex arrray");
+            gl.bind_vertex_array(Some(vao));
+
+            //create & copy vertices data to buffer
+            let vertices: Vec<f32> = vec![0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
+
+            let buf = gl.create_buffer().expect("cannot create buffer");
+            gl.bind_buffer(ARRAY_BUFFER, Some(buf));
+            gl.buffer_data_u8_slice(
+                ARRAY_BUFFER,
+                std::slice::from_raw_parts(
+                    vertices.as_ptr() as *const u8,
+                    vertices.len() * size_of::<f32>(),
+                ),
+                STATIC_DRAW,
+            );
+
+            //buffer layout
+            gl.enable_vertex_attrib_array(0);
+            gl.vertex_attrib_pointer_f32(0, 2, FLOAT, false, 2 * size_of::<f32>() as i32, 0);
+            gl.bind_vertex_array(None);
 
             Self {
                 program,
-                vertex_array,
+                vertex_array: vao,
             }
         }
     }
@@ -187,13 +184,16 @@ impl RotatingTriangle {
         }
     }
 
-    fn paint(&self, gl: &glow::Context, angle: f32) {
+    fn paint(&self, gl: &glow::Context, delta: Vec2) {
         use glow::HasContext as _;
         unsafe {
             gl.use_program(Some(self.program));
-            gl.uniform_1_f32(
-                gl.get_uniform_location(self.program, "u_angle").as_ref(),
-                angle,
+            //update mouse delta
+            gl.uniform_2_f32(
+                gl.get_uniform_location(self.program, "u_mouse_delta")
+                    .as_ref(),
+                delta.x,
+                delta.y,
             );
             gl.bind_vertex_array(Some(self.vertex_array));
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
