@@ -4,7 +4,7 @@
 use eframe::{
     egui::{self, Vec2},
     egui_glow,
-    glow::{self, ARRAY_BUFFER, FLOAT, STATIC_DRAW},
+    glow::{self, ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, FLOAT, STATIC_DRAW, TRIANGLES, UNSIGNED_BYTE, UNSIGNED_INT},
 };
 
 use egui::mutex::Mutex;
@@ -151,7 +151,12 @@ impl RotatingTriangle {
             gl.bind_vertex_array(Some(vao));
 
             //create & copy vertices data to buffer
-            let vertices: Vec<f32> = vec![0.0, 1.0, -1.0, -1.0, 1.0, -1.0];
+            let vertices: Vec<f32> = vec![
+                -0.5, -0.5,
+                0.5, -0.5,
+                0.5, 0.5,
+                -0.5, 0.5,
+            ];
 
             let buf = gl.create_buffer().expect("cannot create buffer");
             gl.bind_buffer(ARRAY_BUFFER, Some(buf));
@@ -167,6 +172,14 @@ impl RotatingTriangle {
             //buffer layout
             gl.enable_vertex_attrib_array(0);
             gl.vertex_attrib_pointer_f32(0, 2, FLOAT, false, 2 * size_of::<f32>() as i32, 0);
+            
+            //indices buffer
+            let indices: Vec<u8> = vec![0,1,2,2,3,0];
+            let ibo = gl.create_buffer().expect("cannot create buffer");
+            gl.bind_buffer(ELEMENT_ARRAY_BUFFER, Some(ibo));
+            gl.buffer_data_u8_slice(ELEMENT_ARRAY_BUFFER, &indices, STATIC_DRAW);
+
+            
             gl.bind_vertex_array(None);
 
             Self {
@@ -196,7 +209,7 @@ impl RotatingTriangle {
                 delta.y,
             );
             gl.bind_vertex_array(Some(self.vertex_array));
-            gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            gl.draw_elements(TRIANGLES, 6, UNSIGNED_BYTE, 0);
         }
     }
 }
