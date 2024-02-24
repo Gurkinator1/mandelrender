@@ -3,16 +3,33 @@
     flake-utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+
+
+    nixpkgs-mozilla = {
+      url = "github:mozilla/nixpkgs-mozilla";
+      flake = false;
+    };
   };
 
-  outputs = { self, flake-utils, naersk, nixpkgs }:
+  outputs = { self, flake-utils, naersk, nixpkgs, nixpkgs-mozilla }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = (import nixpkgs) {
           inherit system;
+          overlays = [(import nixpkgs-mozilla)];
         };
 
-        naersk' = pkgs.callPackage naersk {};
+        toolchain = (pkgs.rustChannelOf {
+          rustToolchain = ./rust-toolchain;
+          sha256 = "sha256-scPqqkGFg4s8rC1gkJx2KW7hWeD8OoAX8ld20DcZuQk=";
+          #        ^ After you run `nix build`, replace this with the actual
+          #          hash from the error message
+        }).rust;
+
+        naersk' = pkgs.callPackage naersk {
+          cargo = toolchain;
+          rustc = toolchain;
+        };
 
       in rec {
         # For `nix build` & `nix run`:
@@ -21,7 +38,7 @@
         };
 
         devShell = pkgs.mkShell rec {
-          nativeBuildInputs = with pkgs; [ rustc cargo ];
+          nativeBuildInputs = [ toolchain ];
           
           buildInputs = with pkgs; [
             libxkbcommon
@@ -37,6 +54,7 @@
             xorg.libX11
           ];
           LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";
+          RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
         };
       }
     );
