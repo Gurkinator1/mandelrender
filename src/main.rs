@@ -4,7 +4,7 @@
 use eframe::{
     egui::{self, Vec2},
     egui_glow,
-    glow::{self, ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, FLOAT, STATIC_DRAW, TRIANGLES, UNSIGNED_BYTE, UNSIGNED_INT},
+    glow::{self, ARRAY_BUFFER, ELEMENT_ARRAY_BUFFER, FLOAT, STATIC_DRAW, TRIANGLES, UNSIGNED_BYTE},
 };
 
 use egui::mutex::Mutex;
@@ -29,6 +29,7 @@ struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     rotating_triangle: Arc<Mutex<RotatingTriangle>>,
     delta: Vec2,
+    zoom: u32,
 }
 
 impl MyApp {
@@ -40,6 +41,7 @@ impl MyApp {
         Self {
             rotating_triangle: Arc::new(Mutex::new(RotatingTriangle::new(gl))),
             delta: Vec2::ZERO,
+            zoom: 1
         }
     }
 }
@@ -57,7 +59,16 @@ impl eframe::App for MyApp {
             egui::Frame::canvas(ui.style()).show(ui, |ui| {
                 self.custom_painting(ui);
             });
-            ui.label("Drag to rotate!");
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                if ui.button("smaller").clicked() {
+                    self.zoom += 1;
+                }
+
+                if ui.button("larger").clicked() {
+                    self.zoom += 1;
+                }
+            });
         });
     }
 
@@ -71,17 +82,27 @@ impl eframe::App for MyApp {
 impl MyApp {
     fn custom_painting(&mut self, ui: &mut egui::Ui) {
         let (rect, response) =
-            ui.allocate_exact_size(egui::Vec2::splat(300.0), egui::Sense::drag());
+            ui.allocate_exact_size(egui::Vec2::splat(1000.0), egui::Sense::click_and_drag());
 
         self.delta += response.drag_delta() * 0.01;
+
+        if response.clicked_by(egui::PointerButton::Primary) {
+            self.zoom += 1;
+        }
+        else if response.clicked_by(egui::PointerButton::Secondary) {
+            self.zoom -= 1;
+        }
+        
+        
         // Clone locals so we can move them into the paint callback:
         let delta = self.delta;
+        let zoom = self.zoom;
         let rotating_triangle = self.rotating_triangle.clone();
 
         let callback = egui::PaintCallback {
             rect,
             callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |_info, painter| {
-                rotating_triangle.lock().paint(painter.gl(), delta);
+                rotating_triangle.lock().paint(painter.gl(), delta, zoom);
             })),
         };
         ui.painter().add(callback);
@@ -152,11 +173,16 @@ impl RotatingTriangle {
 
             //create & copy vertices data to buffer
             let vertices: Vec<f32> = vec![
-                -0.5, -0.5,
-                0.5, -0.5,
-                0.5, 0.5,
-                -0.5, 0.5,
+                -1.0, -1.0,
+                1.0, -1.0,
+                1.0, 1.0,
+                -1.0, 1.0,
             ];
+
+            //"scale" vertices
+            //for v in vertices.iter_mut() {
+            //    *v *= 0.75;
+            //}
 
             let buf = gl.create_buffer().expect("cannot create buffer");
             gl.bind_buffer(ARRAY_BUFFER, Some(buf));
@@ -197,7 +223,7 @@ impl RotatingTriangle {
         }
     }
 
-    fn paint(&self, gl: &glow::Context, delta: Vec2) {
+    fn paint(&self, gl: &glow::Context, delta: Vec2, zoom: u32) {
         use glow::HasContext as _;
         unsafe {
             gl.use_program(Some(self.program));
@@ -207,6 +233,11 @@ impl RotatingTriangle {
                     .as_ref(),
                 delta.x,
                 delta.y,
+            );
+            //update zoom
+            gl.uniform_1_u32(
+                gl.get_uniform_location(self.program, "u_zoom").as_ref(),
+                zoom
             );
             gl.bind_vertex_array(Some(self.vertex_array));
             gl.draw_elements(TRIANGLES, 6, UNSIGNED_BYTE, 0);
