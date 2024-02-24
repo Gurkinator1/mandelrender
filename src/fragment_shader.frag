@@ -1,7 +1,7 @@
 precision mediump float;
 out vec4 out_color;
 uniform vec2 u_mouse_delta;
-uniform uint u_zoom;
+uniform int u_zoom;
 
 vec3 hsv2rgb(vec3 c)
 {

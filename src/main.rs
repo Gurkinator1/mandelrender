@@ -29,7 +29,7 @@ struct MyApp {
     /// Behind an `Arc<Mutex<…>>` so we can pass it to [`egui::PaintCallback`] and paint later.
     rotating_triangle: Arc<Mutex<RotatingTriangle>>,
     delta: Vec2,
-    zoom: u32,
+    zoom: i32,
 }
 
 impl MyApp {
@@ -223,7 +223,7 @@ impl RotatingTriangle {
         }
     }
 
-    fn paint(&self, gl: &glow::Context, delta: Vec2, zoom: u32) {
+    fn paint(&self, gl: &glow::Context, delta: Vec2, zoom: i32) {
         use glow::HasContext as _;
         unsafe {
             gl.use_program(Some(self.program));
@@ -235,7 +235,7 @@ impl RotatingTriangle {
                 delta.y,
             );
             //update zoom
-            gl.uniform_1_u32(
+            gl.uniform_1_i32(
                 gl.get_uniform_location(self.program, "u_zoom").as_ref(),
                 zoom
             );
